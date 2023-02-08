@@ -1,0 +1,18 @@
+Models/
+Data/
+/Data/Distance Estimation Data/val/
+/Data/Distance Estimation Data/data.csv
+/Data/Images/
+/Data/Images (segmentation)/
+/Data/Images (standalone fire detection data)/
+/Data/zipped/fire-detection-dataset.zip
+/Data/zipped/fire-segmentation-image-dataset.zip
+/Data/zipped/test-dataset.zip
+/Data/zipped/val.tar.gz
+/dump.py
+
+__pycache__/
+*/__pycache__/
+
+.idea/
+
