@@ -273,20 +273,20 @@ class DistanceData(tf.keras.utils.Sequence, ABC):
 
 if __name__ == '__main__':
     data_generator = DistanceData(batch_size=4)
-    from tqdm import trange
+    from tqdm import tqdm
 
-
-    def stats(tensor):
-        statistic = f'mean: {np.mean(tensor)}\n' \
-                    f'std : {np.std(tensor)}\n' \
-                    f'max : {np.max(tensor)}\n' \
-                    f'min : {np.min(tensor)}\n'
-        return statistic
-
-    for i in trange(len(data_generator)):
-        x_, y_ = data_generator[i]
-        print(stats(y_))
-        if i > 10:
-            break
+    with tqdm(total=len(data_generator), desc='Iterating through Data') as progress_bar:
+        mean = .0
+        std = .0
+        maximum = -np.inf
+        minimum = np.inf
+        for i in range(len(data_generator)):
+            x_, y_ = data_generator[i]
+            mean += np.mean(y_) / (i + 1)
+            std += np.std(y_) / (i + 1)
+            maximum = max(maximum, np.max(y_))
+            minimum = min(minimum, np.min(y_))
+            progress_bar.set_postfix_str(s=f'Mean: {mean} | St dev.: {std} | Max: {maximum} | Min: {minimum}')
+            progress_bar.update()
 
     data_generator.visualise_depth_map()
