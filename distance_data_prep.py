@@ -1,12 +1,15 @@
 import os
 import tarfile
 from abc import ABC
-
+from tqdm import tqdm
 import cv2
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 import matplotlib.pyplot as plt
+import torch
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+tf.keras.backend.set_floatx('float16')
 
 
 class DistanceData(tf.keras.utils.Sequence, ABC):
@@ -30,6 +33,8 @@ class DistanceData(tf.keras.utils.Sequence, ABC):
                  num_channels: int = 3,
                  data_directory: str = os.path.join('Data', 'Distance Estimation Data'),
                  unpack: bool = False,
+                 split: str = 'train',
+                 train_proportion: float = .1,
                  zipped_data_file_path: str = os.path.join('Data', 'zipped', 'val.tar.gz')):
 
         # If unpack flag is True, extract the zipped data to data_directory
@@ -41,14 +46,36 @@ class DistanceData(tf.keras.utils.Sequence, ABC):
             assert os.path.isfile(zipped_data_file_path)
             # Open the zipped data file
             tar_file = tarfile.open(zipped_data_file_path)
-            # Extract all files from the zipped data to the data directory
-            tar_file.extractall(data_directory)
+
+            # get the members of the tar.gz file
+            members = tar_file.getmembers()
 
             # Get the list of files after extraction
             file_list = []
-            for root, dirs, files in os.walk(os.path.join(data_directory, 'val')):
-                for file in files:
-                    file_list.append(os.path.join(root, file))
+
+            with tqdm(total=len(members), desc='Extracting Files') as progress_bar:
+                # Loop through each member in the tar file
+                for member in members:
+                    if len(member.name.split('/')) < 2:
+                        progress_bar.update()
+                        continue
+                    # Get the file path of the extracted member
+                    member_path = os.path.join(*[data_directory, *member.name.split('/')])
+
+                    # Extract the current member (file or directory)
+                    tar_file.extract(member, path=data_directory)
+
+                    # Check if the extracted member is a file
+                    if os.path.isfile(member_path):
+                        # If it is a file, append it to the list of extracted files
+                        file_list.append(member_path)
+
+                    # Update the progress bar
+                    progress_bar.update()
+
+            # Close the tar file
+            tar_file.close()
+
             # Sort the file list
             file_list.sort()
 
@@ -74,6 +101,10 @@ class DistanceData(tf.keras.utils.Sequence, ABC):
 
         # Store the index values of the data as a list in self.indexes
         self.indexes = self.data_df.index.tolist()
+        if split == 'train':
+            self.indexes = self.indexes[:int(len(self.indexes) * train_proportion)]
+        elif split == 'valid':
+            self.indexes = self.indexes[:int(len(self.indexes) * (1 - train_proportion))]
 
         # Store the image dimensions (height, width) in self.dim
         self.dim = (height, width)
@@ -103,8 +134,9 @@ class DistanceData(tf.keras.utils.Sequence, ABC):
         Returns:
             int: the number of batches in the dataset
         """
-        # Return the number of batches in the dataset by dividing the number of data samples by the batch size and rounding up
-        return int(np.ceil(len(self.data_df) / self.batch_size))
+        # Return the number of batches in the dataset by dividing the number of data samples by the batch size and
+        # rounding up
+        return int(np.ceil(len(self.indexes) / self.batch_size))
 
     # Define the method to retrieve a batch of data from the dataset
     def __getitem__(self, index):
@@ -119,12 +151,18 @@ class DistanceData(tf.keras.utils.Sequence, ABC):
         Returns:
             tuple: a tuple of the inputs and targets for the batch
         """
-        # If the batch size for the current index is larger than the remaining number of samples, reduce the batch size
-        if (index + 1) * self.batch_size > len(self.indexes):
-            self.batch_size = len(self.indexes) - index * self.batch_size
+        # set the index of the first element in the batch to be returned
+        start = index * self.batch_size
+
+        # set the index of the last element in the batch to be returned
+        end = (index + 1) * self.batch_size
+
+        # handle the special case of the last batch
+        if end > len(self.indexes):
+            end = -1
 
         # Get the index values for the current batch
-        index = self.indexes[index * self.batch_size: (index + 1) * self.batch_size]
+        index = self.indexes[start: end]
         batch = [self.indexes[k] for k in index]
 
         # Generate the inputs and targets for the batch
@@ -150,7 +188,7 @@ class DistanceData(tf.keras.utils.Sequence, ABC):
         # Loop through each index in the batch
         for i, batch_id in enumerate(batch):
             # Load the image, depth, and mask data for the current index
-            x[i, ], y[i, ] = self.load(
+            x[i,], y[i,] = self.load(
                 self.data_df['image'][batch_id],
                 self.data_df['depth'][batch_id],
                 self.data_df['mask'][batch_id]
@@ -179,7 +217,7 @@ class DistanceData(tf.keras.utils.Sequence, ABC):
         image_ = cv2.resize(image_, self.dim)
 
         # Convert the image to a float tensor
-        image_ = tf.image.convert_image_dtype(image_, tf.float32)
+        image_ = tf.image.convert_image_dtype(image_, tf.float16)
 
         # Load the depth map and mask
         depth_map = np.load(image_depth)
@@ -204,7 +242,7 @@ class DistanceData(tf.keras.utils.Sequence, ABC):
         depth_map = np.expand_dims(depth_map, axis=2)
 
         # Convert the depth map to a float tensor
-        depth_map = tf.image.convert_image_dtype(depth_map, tf.float32)
+        depth_map = tf.image.convert_image_dtype(depth_map, tf.float16)
 
         return image_, depth_map
 
@@ -234,5 +272,21 @@ class DistanceData(tf.keras.utils.Sequence, ABC):
 
 
 if __name__ == '__main__':
-    data_generator = DistanceData(batch_size=2)
+    data_generator = DistanceData(batch_size=4)
+    from tqdm import trange
+
+
+    def stats(tensor):
+        statistic = f'mean: {np.mean(tensor)}\n' \
+                    f'std : {np.std(tensor)}\n' \
+                    f'max : {np.max(tensor)}\n' \
+                    f'min : {np.min(tensor)}\n'
+        return statistic
+
+    for i in trange(len(data_generator)):
+        x_, y_ = data_generator[i]
+        print(stats(y_))
+        if i > 10:
+            break
+
     data_generator.visualise_depth_map()
