@@ -5,12 +5,14 @@ from tqdm import tqdm
 import cv2
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 import matplotlib.pyplot as plt
 import torch
-from torch.utils.data import Dataset, DataLoader
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+tf.keras.backend.set_floatx('float16')
 
 
-class DistanceData(Dataset, ABC):
+class DistanceData(tf.keras.utils.Sequence, ABC):
     """
     DistanceData is a class that inherits from the Sequence class of Tensorflow and the ABC (Abstract Base Class)
     This class is used to extract and store data for distance estimation
@@ -119,6 +121,9 @@ class DistanceData(Dataset, ABC):
         # Store the number of channels in the data in self.n_channels
         self.n_channels = num_channels
 
+        # Call the on_epoch_end method to perform any end-of-epoch operations
+        self.on_epoch_end()
+
     # Define the method to return the number of batches in the dataset
     def __len__(self):
         """
@@ -131,7 +136,7 @@ class DistanceData(Dataset, ABC):
         """
         # Return the number of batches in the dataset by dividing the number of data samples by the batch size and
         # rounding up
-        return len(self.indexes)
+        return int(np.ceil(len(self.indexes) / self.batch_size))
 
     # Define the method to retrieve a batch of data from the dataset
     def __getitem__(self, index):
@@ -146,12 +151,22 @@ class DistanceData(Dataset, ABC):
         Returns:
             tuple: a tuple of the inputs and targets for the batch
         """
+        # set the index of the first element in the batch to be returned
+        start = index * self.batch_size
+
+        # set the index of the last element in the batch to be returned
+        end = (index + 1) * self.batch_size
+
+        # handle the special case of the last batch
+        if end > len(self.indexes):
+            end = -1
+
+        # Get the index values for the current batch
+        index = self.indexes[start: end]
+        batch = [self.indexes[k] for k in index]
+
         # Generate the inputs and targets for the batch
-        x, y = self.load(
-                self.data_df['image'][index],
-                self.data_df['depth'][index],
-                self.data_df['mask'][index]
-            )
+        x, y = self.data_generation(batch)
 
         # Return the inputs and targets for the batch
         return x, y
@@ -166,9 +181,9 @@ class DistanceData(Dataset, ABC):
         :return: x, y; input and target data respectively.
         """
         # Initialize x with an empty array of size (batch_size, height, width, num_channels)
-        x = np.empty((*self.dim[::-1], self.n_channels))
+        x = np.empty((self.batch_size, *self.dim[::-1], self.n_channels))
         # Initialize y with an empty array of size (batch_size, height, width, 1)
-        y = np.empty((*self.dim[::-1], 1))
+        y = np.empty((self.batch_size, *self.dim[::-1], 1))
 
         # Loop through each index in the batch
         for i, batch_id in enumerate(batch):
@@ -202,7 +217,7 @@ class DistanceData(Dataset, ABC):
         image_ = cv2.resize(image_, self.dim)
 
         # Convert the image to a float tensor
-        image_ = torch.tensor(image_).float().to(torch.float16)
+        image_ = tf.image.convert_image_dtype(image_, tf.float16)
 
         # Load the depth map and mask
         depth_map = np.load(image_depth)
@@ -227,33 +242,51 @@ class DistanceData(Dataset, ABC):
         depth_map = np.expand_dims(depth_map, axis=2)
 
         # Convert the depth map to a float tensor
-        depth_map = torch.tensor(depth_map).float().to(torch.float16)
+        depth_map = tf.image.convert_image_dtype(depth_map, tf.float16)
 
         return image_, depth_map
 
+    def on_epoch_end(self):
+        """
+        This function updates the indexes of the data_df after each epoch.
+        If the shuffle attribute is True, it shuffles the indexes.
+        """
+        self.indexes = np.arange(len(self.indexes))  # create an array of indices
+        if self.shuffle:  # shuffle the indices if shuffle attribute is True
+            np.random.shuffle(self.indexes)
 
-def visualise_depth_map(batch):
-    """
-    This function generates a random batch of images and depth maps and visualizes them using matplotlib.
-    It creates a subplot with `batch_size` rows and 2 columns, where the first column displays the image
-    and the second column displays the depth map.
-    """
-    images, depth_maps = batch
-    batch_size = images.shape[0]
-    # create a subplot with `batch_size` rows and 2 columns
-    fig, ax = plt.subplots(batch_size, 2, figsize=(50, 50))
-    for i in range(batch_size):
-        ax[i, 0].imshow(images[i].squeeze().float().to(torch.float32))  # display image
-        ax[i, 1].imshow(depth_maps[i].squeeze().float().to(torch.float32))  # display depth map
-    plt.show()  # show the plot
+    def visualise_depth_map(self):
+        """
+        This function generates a random batch of images and depth maps and visualizes them using matplotlib.
+        It creates a subplot with `batch_size` rows and 2 columns, where the first column displays the image
+        and the second column displays the depth map.
+        """
+        images, depth_maps = self.__getitem__(
+            index=np.random.randint(len(self)))  # get a random batch of images and depth maps
+        fig, ax = plt.subplots(self.batch_size, 2,
+                               figsize=(50, 50))  # create a subplot with `batch_size` rows and 2 columns
+        for i in range(self.batch_size):
+            ax[i, 0].imshow(images[i].squeeze())  # display image
+            ax[i, 1].imshow(depth_maps[i].squeeze())  # display depth map
+        plt.show()  # show the plot
 
 
 if __name__ == '__main__':
-    data_loader = DataLoader(DistanceData(), batch_size=4)
-    for batch in data_loader:
-        print(batch[0].shape)
-        print(batch[1].shape)
+    data_generator = DistanceData(batch_size=4)
+    from tqdm import trange
 
-        visualise_depth_map(batch)
-        exit()
-    # visualise_depth_map(examples)
+
+    def stats(tensor):
+        statistic = f'mean: {np.mean(tensor)}\n' \
+                    f'std : {np.std(tensor)}\n' \
+                    f'max : {np.max(tensor)}\n' \
+                    f'min : {np.min(tensor)}\n'
+        return statistic
+
+    for i in trange(len(data_generator)):
+        x_, y_ = data_generator[i]
+        print(stats(y_))
+        if i > 10:
+            break
+
+    data_generator.visualise_depth_map()
