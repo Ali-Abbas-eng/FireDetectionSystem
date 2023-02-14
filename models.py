@@ -1,7 +1,4 @@
 import re
-from abc import ABC
-
-import torch
 from torch.nn import (
     ConvTranspose2d,
     Conv2d,
