@@ -1,8 +1,7 @@
 import cv2
 import numpy as np
 
-from models import UNet
-import torchvision.transforms as transform
+from models import get_depth_estimation_model, get_fire_segmentation_model
 import os
 
 
@@ -65,17 +64,8 @@ class VideoStream:
         self.quit_character = quit_character
 
         # Load the U-Net model from the provided path and checkpoint
-        self.model = UNet(model_directory=fire_detection_model_path, checkpoint_index=checkpoint)
-
-        # Define the image pre-processing pipeline
-        self.frame_pre_processing_pipeline = transform.Compose([
-            # Convert the image to a PIL image
-            transform.ToPILImage(),
-            # Crop the image to a 256x256 size
-            transform.CenterCrop((256, 256)),
-            # Convert the image to a tensor
-            transform.ToTensor()
-        ])
+        self.fire_segmentation_model = get_fire_segmentation_model()
+        self.depth_estimation_model = get_depth_estimation_model()
 
     def get_feed(self):
         """
@@ -128,21 +118,53 @@ class VideoStream:
             The processed frame with the fire detection mask overlayed on the original frame.
         """
         # Copy the frame to avoid modifying the original frame
-        complete_frame = frame.copy()
-
+        # complete_frame = frame.copy()
         # Use the U-Net model to generate a fire detection mask
-        mask = self.model.infer(self.frame_pre_processing_pipeline(frame).unsqueeze(dim=0))
-
-        # Calculate the pixel coordinates of the center of the mask and the complete frame
-        frame_pixel_starts = mask.shape[0] // 2, mask.shape[1] // 2
-        height_start, width_start = complete_frame.shape[0] // 2, complete_frame.shape[1] // 2
-
-        # Overlay the mask on the complete frame
-        complete_frame[height_start - frame_pixel_starts[0]: height_start + frame_pixel_starts[0],
-                       width_start - frame_pixel_starts[1]: width_start + frame_pixel_starts[1], :] = mask
+        # frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        mask = np.where(self.fire_segmentation_model(frame[None, :, :, :] / 255.) > .5, 255, 0).astype(np.uint8)
+        if np.sum(mask) == 0:
+            return frame
+        mask = mask.squeeze(axis=0)
+        centroids, contours = self.find_centroids(mask)
+        depth_mask = self.depth_estimation_model(frame[None, :, :, :] / 255.)
+        depths = [depth_mask[centroid[0], centroid[1]] for centroid in centroids]
+        frame = np.where(mask == 1., frame, frame // 3)
+        # Set the font type and scale
+        texts = [f'fire {depths[i]} (Meters)' for i in depths]
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 1
+        # Set the color and line thickness
+        color = (255, 255, 255)
+        thickness = 2
+        # Draw a bounding box around each contour
+        for contour in contours:
+            # Calculate the bounding rectangle of the contour
+            x, y, w, h = cv2.boundingRect(contour)
+            point_1 = x, y
+            point_2 = x + w, y + h
+            # Draw the bounding box on the image
+            cv2.rectangle(frame, point_1, point_2, (0, 255, 0), 2)
+            position = (x, y + h)
+            # Write the text on the image
+            cv2.putText(frame, texts[contours.index(contour)], position, font, font_scale, color, thickness)
 
         # Return the processed frame
-        return complete_frame
+        return cv2.cvtColor(frame, cv2.COLOR_RBG2BGR)
+
+    @staticmethod
+    def find_centroids(mask):
+        print(mask.shape)
+        print(np.min(mask))
+        print(np.max(mask))
+        mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
+        contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        centroids = []
+        for contour in contours:
+            moments = cv2.moments(contour)
+            centroid_x = int(moments['m10'] / moments['m00'])
+            centroid_y = int(moments['m01'] / moments['m00'])
+            centroids.append((centroid_x, centroid_y))
+        return centroids, contours
 
 
 if __name__ == '__main__':
