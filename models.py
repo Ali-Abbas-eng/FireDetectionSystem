@@ -160,7 +160,7 @@ class BottleNeckBlock(layers.Layer):
         return x
 
 
-def calculate_loss_depth_estimation(target, pred, **kwargs):
+def depth_loss_function(target, pred, **kwargs):
     """Calculate the composite depth estimation loss between the target and predicted tensors.
 
     Args:
@@ -236,7 +236,7 @@ class UNet(tf.keras.Model):
     def __init__(self,
                  model_directory: str = os.path.join('Models', 'UNet Depth Estimation'),
                  file_name: str = 'checkpoint.h5',
-                 loss_function: Callable = calculate_loss_depth_estimation,
+                 loss_function: Callable = depth_loss_function,
                  top_layer_activation: str = 'relu',
                  **kwargs):
         """
@@ -390,7 +390,7 @@ class UNet(tf.keras.Model):
 def get_depth_estimation_model(model_directory: str = os.path.join('Models', 'UNet Depth Estimation'),
                                weights_model: str = os.path.join('Models', 'UNet Depth Estimation', 'checkpoint.h5'),
                                file_name: str = 'checkpoint.h5',
-                               loss_function: Callable = calculate_loss_depth_estimation,
+                               loss_function: Callable = depth_loss_function,
                                top_layer_activation: str = 'relu',
                                **kwargs) -> UNet:
     """
