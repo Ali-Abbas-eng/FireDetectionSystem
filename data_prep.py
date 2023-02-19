@@ -7,61 +7,110 @@ import pandas as pd
 import tensorflow as tf
 from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
-
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-
-
-import os
-import tarfile
-from abc import ABC
-import cv2
-import numpy as np
-import pandas as pd
-import tensorflow as tf
-from tqdm.auto import tqdm
-import matplotlib.pyplot as plt
 import zipfile
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
+import pandas as pd
+import os
+import tensorflow as tf
+from abc import ABC
+from typing import Optional, Dict, Tuple
+
 class DistanceData(tf.keras.utils.Sequence, ABC):
     """
-    DistanceData is a class that inherits from the Sequence class of Tensorflow and the ABC (Abstract Base Class)
-    This class is used to extract and store data for distance estimation
+    DistanceData is a class that inherits from the Sequence class of Tensorflow and the ABC (Abstract Base Class).
+    This class is used to extract and store data for distance estimation.
 
     Args:
-    data_csv_file (str): path to the data.csv file
-    data_directory (str): path to the data directory
-    unpack (bool): flag to unpack the zipped data
-    zipped_data_file_path (str): path to the zipped data file
+        batch_size (int): batch size for data generation (default: 64).
+        shuffle (bool): flag to shuffle the data after each epoch (default: True).
+        height (int): image height (default: 1024).
+        width (int): image width (default: 768).
+        num_channels (int): number of image channels (default: 3).
+        data_directory (str): path to the directory containing data (default: 'Data/Distance Estimation Data').
+        val_data_separate (bool): flag to split validation data from training data (default: True).
+        train_data_zip (str): path to the zip file containing training data (default: 'Data/zipped/train.tar.gz').
+        val_data_zip (str): path to the zip file containing validation data (default: 'Data/zipped/val.tar.gz').
+        split_props (float): proportion of data to use (default: 1.0).
+        key_hint_pairs (Optional[Dict[str, str]]): dictionary containing keys and hints to identify data files.
+        split (str): type of data split to use (default: 'train').
+        unpack (bool): flag to unpack zipped data (default: False).
+        create_csv (bool): flag to create csv files for training and validation data (default: False).
+
+        This class is used to extract and store data for distance estimation. It inherits from the Sequence class of
+        TensorFlow and the Abstract Base Class (ABC). The class can be used to extract data from a CSV file, as well as
+        from zipped files. It provides the necessary attributes and methods to retrieve and process the data in the
+        desired format. The class is highly customizable, allowing for different values to be specified for the
+        batch_size, dimensions, channels, and whether the data should be shuffled. The class also provides the
+        ability to create CSV files for the data.
     """
 
-    def __init__(self,
-                 batch_size: int = 64,
-                 shuffle: bool = True,
-                 height: int = 1024,
-                 width: int = 768,
-                 num_channels: int = 3,
-                 data_directory: str = os.path.join('Data', 'Distance Estimation Data'),
-                 val_data_separate: bool = True,
-                 train_data_zip: str = os.path.join('Data', 'zipped', 'train.tar.gz'),
-                 val_data_zip: str = os.path.join('Data', 'zipped', 'val.tar.gz'),
-                 split_props: float = 1.,
-                 key_hint_pairs=None,
-                 split: str = 'train',
-                 unpack: bool = False,
+    def __init__(self, batch_size: int = 64, shuffle: bool = True, height: int = 1024,
+                 width: int = 768, num_channels: int = 3, data_directory: str = 'Data/Distance Estimation Data',
+                 val_data_separate: bool = True, train_data_zip: str = 'Data/zipped/train.tar.gz',
+                 val_data_zip: str = 'Data/zipped/val.tar.gz', split_props: float = 1.,
+                 key_hint_pairs: Optional[Dict[str, str]] = None, split: str = 'train', unpack: bool = False,
                  create_csv: bool = False):
+        """
+        Initializes the class.
 
+        Args:
+            batch_size (int): batch size for data generation (default: 64).
+            shuffle (bool): flag to shuffle the data after each epoch (default: True).
+            height (int): image height (default: 1024).
+            width (int): image width (default: 768).
+            num_channels (int): number of image channels (default: 3).
+            data_directory (str): path to the directory containing data (default: 'Data/Distance Estimation Data').
+            val_data_separate (bool): flag to split validation data from training data (default: True).
+            train_data_zip (str): path to the zip file containing training data (default: 'Data/zipped/train.tar.gz').
+            val_data_zip (str): path to the zip file containing validation data (default: 'Data/zipped/val.tar.gz').
+            split_props (float): proportion of data to use (default: 1.0).
+            key_hint_pairs (Optional[Dict[str, str]]): dictionary containing keys and hints to identify data files.
+            split (str): type of data split to use (default: 'train').
+            unpack (bool): flag to unpack zipped data (default: False).
+            create_csv (bool): flag to create csv files
+
+        Raises:
+            AssertionError: if the split argument is not 'train' or 'val'
+
+        Attributes:
+        data_df (pandas DataFrame): the dataframe containing the data
+        indexes (list): list of indexes corresponding to the data in the dataframe
+        dim (tuple): the dimensions of the input images (height, width)
+        min_depth (float): the minimum depth value
+        batch_size (int): the batch size to be used during training
+        shuffle (bool): whether the data should be shuffled between epochs
+        n_channels (int): the number of channels in the data
+        key_hint_pairs (dict): a dictionary containing the file keys and their corresponding file extensions
+        split (str): the data split ('train' or 'val')
+        csv_file_path (str): the path to the csv file containing the data
+
+        Methods:
+        on_epoch_end: shuffle the data indexes after each epoch
+        """
+        # If key_hint_pairs is not provided, set the default values for the keys
         if key_hint_pairs is None:
             key_hint_pairs = {'image': '.png', 'depth': '_depth.npy', 'mask': '_mask.npy'}
+
+        # Ensure that the split is one of ['train', 'val']
         assert split in ['train', 'val'], f'Unknown data split value got {split}, expected one of ["train", "val"]'
+
+        # Construct the file path for the CSV file
         csv_file_path = os.path.join(data_directory, f'data_{split}.csv')
+
+        # If the data directory does not exist, create it
         if not os.path.isdir(data_directory):
             os.makedirs(data_directory)
+
+        # If the create_csv flag is set, create CSV files for the data
         if create_csv:
             if val_data_separate:
+                # If validation data should be separated, create separate directories for training and validation data
                 train_data_directory = os.path.join(data_directory, 'train')
                 val_data_directory = os.path.join(data_directory, 'val')
+
+                # Archive the validation and training data into separate CSV files
                 self.archive(val_data_directory,
                              split,
                              unpack,
@@ -77,23 +126,26 @@ class DistanceData(tf.keras.utils.Sequence, ABC):
                              os.path.join(data_directory, 'data_train.csv'),
                              key_hint_pairs)
             else:
+                # If validation data should not be separated, use the same directory for both training and validation
+                # data
                 train_data_directory = data_directory
                 val_data_directory = data_directory
+
+                # Archive the training and validation data into a single CSV file
                 self.archive(train_data_directory,
-                             split,
+                             'train',
                              unpack,
                              split_props,
                              train_data_zip,
                              os.path.join(data_directory, 'data_train.csv'),
                              key_hint_pairs)
                 self.archive(val_data_directory,
-                             split,
+                             'val',
                              False,
                              split_props,
                              val_data_zip,
                              os.path.join(data_directory, f'data_val.csv'),
                              key_hint_pairs)
-
 
         self.data_df = pd.read_csv(csv_file_path)
         self.indexes = self.data_df.index.tolist()
@@ -117,24 +169,41 @@ class DistanceData(tf.keras.utils.Sequence, ABC):
         self.on_epoch_end()
 
     @staticmethod
-    def archive(data_directory,
-                split,
-                unpack,
-                split_props,
-                zipped_file_path,
-                csv_file_path,
-                key_hint_pairs):
+    def archive(data_directory, split, unpack, split_props, zipped_file_path, csv_file_path, key_hint_pairs):
+        """
+        Create a compressed archive of data in a given directory, split the data based on split_props, and save it to a
+        CSV file.
+
+        Args:
+        - data_directory (str): the directory containing the data to be archived
+        - split (str): the split of the data to be archived; must be either "train" or "val"
+        - unpack (bool): whether to unpack a compressed data file
+        - split_props (float): proportion of data to assign to the chosen split
+        - zipped_file_path (str): path to the compressed file to unpack (if applicable)
+        - csv_file_path (str): path to the CSV file where the archived data will be saved
+        - key_hint_pairs (dict): a dictionary mapping data keys to file extensions
+
+        Returns:
+        - None
+
+        """
+        # create an empty dictionary to hold data corresponding to each key
         data = {key: [] for key in key_hint_pairs.keys()}
+
+        # create an empty list to hold file paths for each file in the directory
         file_list = []
 
         def add_to_data(item):
+            # add file path to file_list
             file_path = item
             file_list.append(file_path)
+
+            # add file path to corresponding key in data dictionary if the file ends with an expected extension
             for key, hint in key_hint_pairs.items():
                 if file_path.endswith(hint):
                     data[key].append(file_path)
 
-
+        # unpack the compressed file, if requested
         if unpack:
             if zipped_file_path.endswith('.gz'):
                 compressed_file = tarfile.open(name=zipped_file_path, mode='r:gz')
@@ -143,23 +212,30 @@ class DistanceData(tf.keras.utils.Sequence, ABC):
                 compressed_file = zipfile.ZipFile(zipped_file_path, 'r')
                 members = compressed_file.infolist()
 
+            # extract files from compressed file to the data directory
             for member in tqdm(members, total=len(members), desc='Unpacking'):
                 compressed_file.extract(member, path=data_directory)
 
+        # count the number of files in the data directory and create a progress bar
         num_files = sum([len(files) for _, __, files in os.walk(data_directory)])
         with tqdm(total=num_files, desc='Creating Archive') as progress_bar:
             for root, dirs, files in os.walk(data_directory):
                 for file in files:
+                    # add file to the data dictionary and update the progress bar
                     add_to_data(os.path.join(root, file))
                     progress_bar.update()
 
+        # sort the data corresponding to each key in ascending order
         [data[key].sort() for key in data.keys()]
+
+        # if split_props is specified, split the data based on the value of split_props
         if 1. > split_props > .0:
             if split == 'train':
                 data = {key: data[key][:int(len(data[key]) * split_props)] for key in data.keys()}
             else:
                 data = {key: data[key][int(len(data[key]) * split_props):] for key in data.keys()}
 
+        # create a pandas DataFrame from the data dictionary and save it to a CSV file
         data_df = pd.DataFrame(data)
         data_df.to_csv(csv_file_path)
 
@@ -313,6 +389,7 @@ class DistanceData(tf.keras.utils.Sequence, ABC):
             ax[i, 1].imshow(depth_maps[i].squeeze())  # display depth map
         plt.show()  # show the plot
 
+
 class FireData(DistanceData):
     def __init__(self,
                  batch_size: int = 64,
@@ -326,6 +403,21 @@ class FireData(DistanceData):
                  split: str = 'train',
                  unpack: bool = False,
                  create_csv: bool = False):
+        """
+        Initializes a new instance of the FireData class.
+
+        :param batch_size: int, the batch size to use during training and evaluation.
+        :param shuffle: bool, whether to shuffle the data.
+        :param height: int, the desired height of the images.
+        :param width: int, the desired width of the images.
+        :param num_channels: int, the number of channels in the images.
+        :param data_directory: str, the path to the directory containing the data.
+        :param train_data_zip: str, the path to the ZIP file containing the training data.
+        :param split_props: float, the proportion of data to use for training.
+        :param split: str, the type of data to use (train or test).
+        :param unpack: bool, whether to unpack the data.
+        :param create_csv: bool, whether to create a CSV file.
+        """
         super().__init__(batch_size,
                          shuffle,
                          height,
@@ -346,11 +438,12 @@ class FireData(DistanceData):
         gets one item at the specified index
         :param index: int, location of the item to be retrieved
         :return: either a tuple that contains the image and its segmentation map, or a dictionary that contains the
-         image and its label
+                 image and its label
         """
         start = index * self.batch_size
         end = (index + 1) * self.batch_size
 
+        # Handle edge case for end of data.
         if end >= self.data_df.shape[0]:
             end = -1
 
@@ -361,8 +454,9 @@ class FireData(DistanceData):
         images = np.array([plt.imread(data_rows['image'][ind]) for ind in range(len(data_rows))], dtype=np.float32)
         images /= 255.
 
+        # read the mask as numpy array
         masks = np.array([plt.imread(data_rows['mask'][ind]) for ind in range(len(data_rows))], dtype=np.float32)
         masks /= 255.
 
-        # return the image whither or not it holds the fire class (1 if class == fire)
+        # Return the images and masks.
         return images, masks
