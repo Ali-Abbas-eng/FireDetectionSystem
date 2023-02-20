@@ -3,6 +3,7 @@ import numpy as np
 
 from models import get_depth_estimation_model, get_fire_segmentation_model
 import os
+import matplotlib.pyplot as plt
 
 
 class VideoStream:
@@ -33,8 +34,8 @@ class VideoStream:
     """
 
     def __init__(self, quit_character: str = 'q',
-                 fire_detection_model_path: str = os.path.join('Models', 'UNet Checkpoints'), ip: str = None,
-                 checkpoint: int = None):
+                 threshold: float = .4,
+                 ip: str = None):
         """
         Class constructor
 
@@ -42,12 +43,12 @@ class VideoStream:
         ----------
         quit_character: str, optional (default = 'q')
             Character used to stop the video stream.
-        fire_detection_model_path: str, optional (default = os.path.join('Models', 'UNet Checkpoints'))
-            Path to the directory containing the U-Net model checkpoints.
+
+        threshold: float, optional (default = 0.4)
+            confidence value on which we split the output map to fire/non-fire pixels
+
         ip: str, optional (default = None)
             IP address of the camera to be used for video stream. If None, default camera will be used.
-        checkpoint: int, optional (default = None)
-            Index of the checkpoint to be used.
 
         Raises:
         ------
@@ -56,7 +57,6 @@ class VideoStream:
         """
         # Validate that the quit_character input has a length of 1
         assert len(quit_character) == 1, "you can only choose one character to be used as a quit command"
-
         # Initialize the video stream
         self.video_stream_object = cv2.VideoCapture(f'https://{ip}:8080/video' if ip is not None else 0)
 
@@ -64,8 +64,9 @@ class VideoStream:
         self.quit_character = quit_character
 
         # Load the U-Net model from the provided path and checkpoint
-        self.fire_segmentation_model = get_fire_segmentation_model()
-        self.depth_estimation_model = get_depth_estimation_model()
+        self.fire_segmentation_model = get_fire_segmentation_model(assert_file_exist=True)
+        self.depth_estimation_model = get_depth_estimation_model(assert_file_exist=True)
+        self.threshold = threshold
 
     def get_feed(self):
         """
@@ -88,8 +89,9 @@ class VideoStream:
             if frame is None:
                 continue
 
-            # Display the processed frame
-            cv2.imshow('Video Stream', self.process(frame))
+            # calculate the processed frame
+            frame = self.process(frame=frame)
+            cv2.imshow('Video Stream', frame)
 
             # Check if the quit character has been pressed
             if cv2.waitKey(1) & 0xFF == ord(self.quit_character):
@@ -120,51 +122,45 @@ class VideoStream:
         # Copy the frame to avoid modifying the original frame
         # complete_frame = frame.copy()
         # Use the U-Net model to generate a fire detection mask
-        # frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        mask = np.where(self.fire_segmentation_model(frame[None, :, :, :] / 255.) > .5, 255, 0).astype(np.uint8)
-        if np.sum(mask) == 0:
-            return frame
-        mask = mask.squeeze(axis=0)
-        centroids, contours = self.find_centroids(mask)
-        depth_mask = self.depth_estimation_model(frame[None, :, :, :] / 255.)
-        depths = [depth_mask[centroid[0], centroid[1]] for centroid in centroids]
-        frame = np.where(mask == 1., frame, frame // 3)
-        # Set the font type and scale
-        texts = [f'fire {depths[i]} (Meters)' for i in depths]
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 1
-        # Set the color and line thickness
-        color = (255, 255, 255)
-        thickness = 2
-        # Draw a bounding box around each contour
-        for contour in contours:
-            # Calculate the bounding rectangle of the contour
-            x, y, w, h = cv2.boundingRect(contour)
-            point_1 = x, y
-            point_2 = x + w, y + h
-            # Draw the bounding box on the image
-            cv2.rectangle(frame, point_1, point_2, (0, 255, 0), 2)
-            position = (x, y + h)
-            # Write the text on the image
-            cv2.putText(frame, texts[contours.index(contour)], position, font, font_scale, color, thickness)
-
+        pre_processed_frame = (np.copy(frame)[None, :, :, ::-1] / 255.).astype(np.float16)
+        fire_mask = self.fire_segmentation_model(pre_processed_frame)
+        fire_mask = np.where(fire_mask > self.threshold, 255, 0).astype(np.uint8)
+        fire_mask = fire_mask[0]
+        depth_mask = self.depth_estimation_model(pre_processed_frame)
+        depth_mask = depth_mask[0]
+        depth_mask = np.array(depth_mask)
+        frame = self.detect_fire(frame=frame, fire_mask=fire_mask, depth_mask=depth_mask)
         # Return the processed frame
-        return cv2.cvtColor(frame, cv2.COLOR_RBG2BGR)
+        return frame[:, :, ::-1]
 
     @staticmethod
-    def find_centroids(mask):
-        print(mask.shape)
-        print(np.min(mask))
-        print(np.max(mask))
-        mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
-        contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        centroids = []
-        for contour in contours:
-            moments = cv2.moments(contour)
-            centroid_x = int(moments['m10'] / moments['m00'])
-            centroid_y = int(moments['m01'] / moments['m00'])
-            centroids.append((centroid_x, centroid_y))
-        return centroids, contours
+    def detect_fire(frame, fire_mask, depth_mask):
+        frame = np.where(fire_mask > 0, frame, frame // 3)
+
+        average_depth = 0
+
+        contours__, __ = cv2.findContours(fire_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        text_x, text_y = [0, 0]
+        x, y, width, height = None, None, None, None
+        mask = np.zeros_like(frame)
+        for __ in contours__:
+            cv2.drawContours(mask, contours__, -1, 255, thickness=-1)
+            c = max(contours__, key=cv2.contourArea)
+            x, y, width, height = cv2.boundingRect(c)
+            text_x = x + width
+            text_y = y
+        points = np.where(mask == 255)
+        if len(points) == 0:
+            return frame
+        average_depth = np.mean(depth_mask[points])
+        cv2.putText(frame,
+                    text=f'Fire {average_depth:.02f} meters',
+                    org=(text_x, text_y),
+                    fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    fontScale=.3,
+                    color=(0, 0, 255),
+                    thickness=1)
+        return frame
 
 
 if __name__ == '__main__':
