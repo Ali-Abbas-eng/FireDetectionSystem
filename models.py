@@ -5,13 +5,16 @@ import tensorflow as tf
 from typing import Callable
 import keras.backend as keras_backend
 
+
 class DownscaleBlock(layers.Layer):
     """
-    DownscaleBlock is a layer which represents a single downsampling block of a convolutional neural network. It applies two
-    convolutional filters, ReLU activation, and batch normalization to the input tensor followed by a max pooling operation.
+    DownscaleBlock is a layer which represents a single down-sampling block of a convolutional neural network.
+    It applies two
+    convolutional filters, ReLU activation,
+    and batch normalization to the input tensor followed by a max pooling operation.
 
     Args:
-    filters (int): number of filters in the convolutional layers
+    filters (int): number of filters in each convolutional layer
     kernel_size (Tuple[int, int]): size of the convolutional kernel
     padding (str): type of padding used in convolution
     strides (int): stride of convolution operation
@@ -73,9 +76,9 @@ class UpscaleBlock(layers.Layer):
         convB: A second convolutional layer that takes in a tensor and applies a 2D convolution to it.
         reluA: A leaky ReLU activation layer for introducing non-linearity in the model.
         reluB: A second leaky ReLU activation layer.
-        bn2a: A batch normalization layer that normalizes the input tensor's values.
-        bn2b: A second batch normalization layer.
-        conc: A concatenation layer that combines two tensors along a specified axis.
+        batch_normalisation_2a: A batch normalization layer that normalizes the input tensor's values.
+        batch_normalisation_2b: A second batch normalization layer.
+        concatenation: A concatenation layer that combines two tensors along a specified axis.
 
     Methods:
         call(x, *args, **kwargs):
@@ -92,9 +95,9 @@ class UpscaleBlock(layers.Layer):
         self.convB = layers.Conv2D(filters, kernel_size, strides, padding)
         self.reluA = layers.LeakyReLU(alpha=0.2)
         self.reluB = layers.LeakyReLU(alpha=0.2)
-        self.bn2a = tf.keras.layers.BatchNormalization()
-        self.bn2b = tf.keras.layers.BatchNormalization()
-        self.conc = layers.Concatenate()
+        self.batch_normalisation_2a = tf.keras.layers.BatchNormalization()
+        self.batch_normalisation_2b = tf.keras.layers.BatchNormalization()
+        self.concatenation = layers.Concatenate()
 
     def call(self, x, *args, **kwargs):
         """
@@ -111,12 +114,12 @@ class UpscaleBlock(layers.Layer):
         """
         x, skip = x  # Split x into two tensors
         x = self.us(x)  # Upsample x using the upsample layer
-        concat = self.conc([x, skip])  # Concatenate x with the skip connection tensor
+        concat = self.concatenation([x, skip])  # Concatenate x with the skip connection tensor
         x = self.convA(concat)  # Apply the first convolutional layer
-        x = self.bn2a(x)  # Normalize the output of the first convolutional layer
+        x = self.batch_normalisation_2a(x)  # Normalize the output of the first convolutional layer
         x = self.reluA(x)  # Apply the first leaky ReLU activation
         x = self.convB(x)  # Apply the second convolutional layer
-        x = self.bn2b(x)  # Normalize the output of the second convolutional layer
+        x = self.batch_normalisation_2b(x)  # Normalize the output of the second convolutional layer
         x = self.reluB(x)  # Apply the second leaky ReLU activation
         return x  # Return the output tensor
 
@@ -304,7 +307,7 @@ class UNet(tf.keras.Model):
         :param target: The target values to calculate the loss.
         :param pred: The predicted values to calculate the loss.
         :param kwargs: Additional keyword arguments.
-        :return: The loss value.
+        :return: loss.
         """
         return self.loss_function(target, pred, **kwargs)
 
@@ -368,13 +371,13 @@ class UNet(tf.keras.Model):
         Returns:
             The output tensor.
         """
-        # Pass the input through the downsampling blocks.
+        # Pass the input through the down-sampling blocks.
         c1, p1 = self.downscale_blocks[0](x)
         c2, p2 = self.downscale_blocks[1](p1)
         c3, p3 = self.downscale_blocks[2](p2)
         c4, p4 = self.downscale_blocks[3](p3)
 
-        # Pass the output of the last downsampling block through the bottleneck block.
+        # Pass the output of the last down-sampling block through the bottleneck block.
         bn = self.bottle_neck_block(p4)
 
         # Pass the bottleneck block output through the upsampling blocks in reverse order.
@@ -392,16 +395,24 @@ def get_depth_estimation_model(model_directory: str = os.path.join('Models', 'UN
                                file_name: str = 'checkpoint.h5',
                                loss_function: Callable = depth_loss_function,
                                top_layer_activation: str = 'relu',
+                               assert_file_exists: bool = False,
                                **kwargs) -> UNet:
     """
     Returns a pre-trained or a newly initialized UNet model for depth estimation.
 
     Args:
-        model_directory (str, optional): The directory to load/save the model. Defaults to 'Models/UNet Depth Estimation'.
-        weights_model (str, optional): The path to the weights file to load. Defaults to 'Models/UNet Depth Estimation/checkpoint.h5'.
-        file_name (str, optional): The name of the weights file to save. Defaults to 'checkpoint.h5'.
-        loss_function (Callable, optional): The loss function to use in training the model. Defaults to calculate_loss_depth_estimation.
-        top_layer_activation (str, optional): The activation function to use in the final layer of the model. Defaults to 'relu'.
+        model_directory (str, optional): The directory to load/save the model.
+                Defaults to 'Models/UNet Depth Estimation'.
+        weights_model (str, optional): The path to the weights file to load.
+                Defaults to 'Models/UNet Depth Estimation/checkpoint.h5'.
+        file_name (str, optional): The name of the weights file to save.
+                Defaults to 'checkpoint.h5'.
+        loss_function (Callable, optional): The loss function to use in training the model.
+                Defaults to calculate_loss_depth_estimation.
+        top_layer_activation (str, optional): The activation function to use in the final layer of the model.
+                Defaults to 'relu'.
+        assert_file_exists (bool, optional): whether to throw an error in case there is no saved checkpoint.
+                Defaults to False
         **kwargs: Additional keyword arguments to pass to the UNet constructor.
 
     Returns:
@@ -420,6 +431,8 @@ def get_depth_estimation_model(model_directory: str = os.path.join('Models', 'UN
     # Load the saved weights if the file exists
     if os.path.isfile(model.file_path):
         model.load_weights(model.file_path)
+    elif assert_file_exists:
+        raise FileNotFoundError('No Saved Checkpoint From Which We Can Load Trained Weights')
 
     return model
 
@@ -428,6 +441,7 @@ def get_fire_segmentation_model(model_directory: str = os.path.join('Models', 'U
                                 file_name: str = 'checkpoint.h5',
                                 loss_function: Callable = dice_bce_loss,
                                 top_layer_activation: str = 'sigmoid',
+                                assert_file_exists: bool = False,
                                 **kwargs) -> tf.keras.Model:
     """
     Returns a pre-trained UNet model for fire segmentation.
@@ -437,6 +451,8 @@ def get_fire_segmentation_model(model_directory: str = os.path.join('Models', 'U
         file_name (str): The name of the checkpoint file. Default is 'checkpoint.h5'.
         loss_function (Callable): The loss function used to train the model. Default is dice_bce_loss.
         top_layer_activation (str): The activation function used in the final layer. Default is 'sigmoid'.
+        assert_file_exists (bool, optional): whether to throw an error in case there is no saved checkpoint.
+                Defaults to False
         **kwargs: Additional keyword arguments to be passed to the UNet constructor.
 
     Returns:
@@ -456,6 +472,7 @@ def get_fire_segmentation_model(model_directory: str = os.path.join('Models', 'U
     # Load the pre-trained weights if the checkpoint file exists
     if os.path.isfile(model.file_path):
         model.load_weights(model.file_path)
+    elif assert_file_exists:
+        raise FileNotFoundError('No Saved Checkpoint From Which We Can Load Trained Weights')
 
     return model
-
