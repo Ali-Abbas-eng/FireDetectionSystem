@@ -324,6 +324,7 @@ class UNet(tf.keras.Model):
         # Gradient tape to calculate the gradients of the loss with respect to the trainable variables
         with tf.GradientTape() as tape:
             pred = self(inputs, training=True)
+            pred = tf.squeeze(pred)
             loss = self.calculate_loss(target, pred, **self.kwargs)
         gradients = tape.gradient(loss, self.trainable_variables)
 
@@ -351,6 +352,8 @@ class UNet(tf.keras.Model):
         # Forward pass through the network.
         pred = self(inputs, training=False)
 
+        # remove redundant axis
+        pred = tf.squeeze(pred)
         # Calculate the loss value.
         loss = self.calculate_loss(target, pred)
 
