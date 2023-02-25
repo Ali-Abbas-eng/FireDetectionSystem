@@ -1,0 +1,2 @@
+MAX_DEPTH = 350.
+MIN_DEPTH = .6
