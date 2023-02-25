@@ -241,6 +241,7 @@ class UNet(tf.keras.Model):
                  file_name: str = 'checkpoint.h5',
                  loss_function: Callable = depth_loss_function,
                  top_layer_activation: str = 'relu',
+                 squeeze_outputs: bool = False,
                  **kwargs):
         """
         The constructor of the UNet class.
@@ -256,7 +257,7 @@ class UNet(tf.keras.Model):
         - None.
         """
         super().__init__()
-
+        self.squeeze_outputs = squeeze_outputs
         self.kwargs = kwargs
         self.loss_metric = tf.keras.metrics.Mean(name="loss")
         self.loss_function = loss_function
@@ -324,7 +325,10 @@ class UNet(tf.keras.Model):
         # Gradient tape to calculate the gradients of the loss with respect to the trainable variables
         with tf.GradientTape() as tape:
             pred = self(inputs, training=True)
-            pred = tf.squeeze(pred)
+
+            if self.squeeze_outputs:
+                pred = tf.squeeze(pred)
+
             loss = self.calculate_loss(target, pred, **self.kwargs)
         gradients = tape.gradient(loss, self.trainable_variables)
 
@@ -352,8 +356,10 @@ class UNet(tf.keras.Model):
         # Forward pass through the network.
         pred = self(inputs, training=False)
 
-        # remove redundant axis
-        pred = tf.squeeze(pred)
+        if self.squeeze_outputs:
+            # remove redundant axis
+            pred = tf.squeeze(pred)
+
         # Calculate the loss value.
         loss = self.calculate_loss(target, pred)
 
@@ -467,6 +473,7 @@ def get_fire_segmentation_model(model_directory: str = os.path.join('Models', 'U
                  file_name=file_name,
                  loss_function=loss_function,
                  top_layer_activation=top_layer_activation,
+                 squeeze_outputs=True,
                  **kwargs)
 
     # Check the model using a random input
