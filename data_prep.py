@@ -1,21 +1,16 @@
-import os
 import tarfile
-from abc import ABC
 import cv2
 import numpy as np
-import pandas as pd
-import tensorflow as tf
 from tqdm.auto import tqdm
 import matplotlib.pyplot as plt
 import zipfile
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-
-
 import pandas as pd
 import os
 import tensorflow as tf
 from abc import ABC
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 
 class DistanceData(tf.keras.utils.Sequence, ABC):
     """
@@ -46,11 +41,22 @@ class DistanceData(tf.keras.utils.Sequence, ABC):
         ability to create CSV files for the data.
     """
 
-    def __init__(self, batch_size: int = 64, shuffle: bool = True, height: int = 1024,
-                 width: int = 768, num_channels: int = 3, data_directory: str = 'Data/Distance Estimation Data',
-                 val_data_separate: bool = True, train_data_zip: str = 'Data/zipped/train.tar.gz',
-                 val_data_zip: str = 'Data/zipped/val.tar.gz', split_props: float = 1.,
-                 key_hint_pairs: Optional[Dict[str, str]] = None, split: str = 'train', unpack: bool = False,
+    def __init__(self,
+                 batch_size: int = 64,
+                 min_depth: float = .6,
+                 max_depth: float = 350.,
+                 shuffle: bool = True,
+                 height: int = 1024,
+                 width: int = 768,
+                 num_channels: int = 3,
+                 data_directory: str = 'Data/Distance Estimation Data',
+                 val_data_separate: bool = True,
+                 train_data_zip: str = 'Data/zipped/train.tar.gz',
+                 val_data_zip: str = 'Data/zipped/val.tar.gz',
+                 split_props: float = 1.,
+                 key_hint_pairs: Optional[Dict[str, str]] = None
+                 , split: str = 'train',
+                 unpack: bool = False,
                  create_csv: bool = False):
         """
         Initializes the class.
@@ -153,8 +159,9 @@ class DistanceData(tf.keras.utils.Sequence, ABC):
         # Store the image dimensions (height, width) in self.dim
         self.dim = (height, width)
 
-        # Store the minimum depth value in self.min_depth
-        self.min_depth = .1
+        # Store the minimum and maximum depth value
+        self.min_depth = min_depth
+        self.max_depth = max_depth
 
         # Store the batch size in self.batch_size
         self.batch_size = batch_size
@@ -320,9 +327,9 @@ class DistanceData(tf.keras.utils.Sequence, ABC):
         Load the image, depth map and mask and process them for usage in the model.
 
         Parameters:
-        image_path (TarInfo): member representing the image file
-        image_depth (TarInfo): member representing the depth file
-        image_mask (TarInfo): member representing the mask file
+        image_path (str): str representing path to the image file
+        image_depth (str): str representing path to the depth file
+        image_mask (str): member representing path to the mask file
 
         Returns:
         Tuple of processed image and depth map as numpy arrays.
@@ -339,25 +346,21 @@ class DistanceData(tf.keras.utils.Sequence, ABC):
 
         # Load the depth map and mask
         depth_map = np.load(image_depth)
-        mask = np.load(image_mask)[:, :, None]
-        mask = mask > 0
+        mask = np.load(image_mask)[:, :, None].astype(np.uint8)
 
         # Clip the depth map to exclude outliers and find the maximum depth
-        max_depth = min(300, max(np.percentile(depth_map, 99), .001))
-        depth_map = np.clip(depth_map, self.min_depth, max_depth)
+        depth_map = np.clip(depth_map, self.min_depth, self.max_depth)
 
         # Apply the mask and take the logarithm of the depth values
-        depth_map = np.log(depth_map, where=mask)
-        depth_map = np.ma.masked_where(~mask, depth_map)
-
-        # Clip the logarithm of the depth values
-        depth_map = np.clip(depth_map, .1, np.log(max_depth))
+        depth_map *= mask
 
         # Resize the depth map to match the required dimensions
         depth_map = cv2.resize(depth_map, self.dim)
 
         # Expand the depth map to match the number of channels
         depth_map = np.expand_dims(depth_map, axis=2)
+
+        depth_map = (depth_map - self.min_depth) / (self.max_depth - self.min_depth)
 
         # Convert the depth map to a float tensor
         # depth_map = tf.image.convert_image_dtype(depth_map, tf.float16)
@@ -418,12 +421,12 @@ class FireData(DistanceData):
         :param unpack: bool, whether to unpack the data.
         :param create_csv: bool, whether to create a CSV file.
         """
-        super().__init__(batch_size,
-                         shuffle,
-                         height,
-                         width,
-                         num_channels,
-                         data_directory,
+        super().__init__(batch_size=batch_size,
+                         shuffle=shuffle,
+                         height=height,
+                         width=width,
+                         num_channels=num_channels,
+                         data_directory=data_directory,
                          val_data_separate=False,
                          train_data_zip=train_data_zip,
                          val_data_zip=None,
