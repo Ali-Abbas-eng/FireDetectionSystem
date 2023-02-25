@@ -4,6 +4,11 @@ import numpy as np
 from models import get_depth_estimation_model, get_fire_segmentation_model
 import os
 import matplotlib.pyplot as plt
+from GLOBAL_VARIABLES import MAX_DEPTH, MIN_DEPTH
+
+
+def de_normalise_depth(average_depth):
+    return (MAX_DEPTH - MIN_DEPTH) * average_depth + MIN_DEPTH
 
 
 class VideoStream:
@@ -153,6 +158,7 @@ class VideoStream:
         if len(points) == 0:
             return frame
         average_depth = np.mean(depth_mask[points])
+        average_depth = de_normalise_depth(average_depth)
         cv2.putText(frame,
                     text=f'Fire {average_depth:.02f} meters',
                     org=(text_x, text_y),
@@ -160,9 +166,9 @@ class VideoStream:
                     fontScale=.3,
                     color=(0, 0, 255),
                     thickness=1)
-        return frame
+        return frame[:, :, ::-1]
 
 
 if __name__ == '__main__':
-    x = VideoStream()
+    x = VideoStream(threshold=.6)
     x.get_feed()
