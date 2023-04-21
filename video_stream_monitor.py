@@ -1,174 +1,153 @@
 import cv2
 import numpy as np
-
-from models import get_depth_estimation_model, get_fire_segmentation_model
-import os
+from inference import Detector
+import tkinter as tk
+from PIL import Image, ImageTk
+from threading import Thread
 import matplotlib.pyplot as plt
-from GLOBAL_VARIABLES import MAX_DEPTH, MIN_DEPTH
-
-
-def de_normalise_depth(average_depth):
-    return (MAX_DEPTH - MIN_DEPTH) * average_depth + MIN_DEPTH
+from matplotlib import cm
 
 
 class VideoStream:
-    """
-    Class for video stream processing
-
-    This class processes a video stream and performs fire detection using a model. The video stream can be obtained either
-    from a webcam or IP-based camera. The model used is a U-Net, which is imported from the 'models' module. The processed
-    video stream can be displayed and stopped by pressing a specified quit character.
-
-    Attributes:
-    ----------
-    video_stream_object: cv2.VideoCapture
-        Object to capture the video stream.
-    quit_character: str
-        Character used to stop the video stream.
-    model: UNet
-        U-Net model for fire detection.
-    frame_pre_processing_pipeline: torchvision.transforms.Compose
-        A pipeline of transformations to apply on the video frame before feeding it to the model.
-
-    Methods:
-    -------
-    get_feed()
-        Captures and processes the video stream until the quit character is pressed.
-    process(frame: numpy.ndarray)
-        Processes a single frame from the video stream.
-    """
-
     def __init__(self, quit_character: str = 'q',
                  threshold: float = .4,
                  ip: str = None):
-        """
-        Class constructor
-
-        Parameters:
-        ----------
-        quit_character: str, optional (default = 'q')
-            Character used to stop the video stream.
-
-        threshold: float, optional (default = 0.4)
-            confidence value on which we split the output map to fire/non-fire pixels
-
-        ip: str, optional (default = None)
-            IP address of the camera to be used for video stream. If None, default camera will be used.
-
-        Raises:
-        ------
-        AssertionError
-            If the length of quit_character is not 1.
-        """
-        # Validate that the quit_character input has a length of 1
-        assert len(quit_character) == 1, "you can only choose one character to be used as a quit command"
-        # Initialize the video stream
         self.video_stream_object = cv2.VideoCapture(f'https://{ip}:8080/video' if ip is not None else 0)
-
-        # Store the quit_character input
         self.quit_character = quit_character
-
-        # Load the U-Net model from the provided path and checkpoint
-        self.fire_segmentation_model = get_fire_segmentation_model(assert_file_exist=True)
-        self.depth_estimation_model = get_depth_estimation_model(assert_file_exist=True)
+        self.detector = Detector()
         self.threshold = threshold
 
+        # Initialize Tkinter viewing functionality
+        self.root = tk.Tk()
+        self.frame_label = tk.Label(self.root)
+        self.frame_label.grid(row=0, column=0)
+        self.fire_mask_label = tk.Label(self.root)
+        self.fire_mask_label.grid(row=1, column=0)
+        self.depth_mask_label = tk.Label(self.root)
+        self.depth_mask_label.grid(row=1, column=1)
+        self.text_label = tk.Label(self.root, text="Random text")
+        self.text_label.grid(row=0, column=1)
+        self.normaliser = plt.Normalize(vmin=self.detector.depth_estimator.min_depth,
+                                        vmax=self.detector.depth_estimator.max_depth)
+
     def get_feed(self):
-        """
-        This function captures and displays video frames from the video stream. The video stream can be stopped by pressing
-        the quit character defined in the constructor.
-
-        Returns:
-        -------
-        None
-        """
-        # Set capture flag to True to start the video stream
         capture = True
-
-        # Capture and display video frames until the quit character is pressed
         while capture:
-            # Read a frame from the video stream
             _, frame = self.video_stream_object.read()
-
-            # Check if the frame is None and skip if it is
             if frame is None:
                 continue
 
-            # calculate the processed frame
-            frame = self.process(frame=frame)
-            cv2.imshow('Video Stream', frame)
+            # New Version:
+            fire_mask, depth_mask = self.process(frame=frame)
 
-            # Check if the quit character has been pressed
+            # Send to Tkinter viewing functionality
+            frame_image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            frame_photo = ImageTk.PhotoImage(image=frame_image)
+            self.frame_label.config(image=frame_photo)
+            self.frame_label.image = frame_photo
+
+            fire_mask_image = Image.fromarray(cv2.cvtColor(fire_mask, cv2.COLOR_BGR2RGB))
+            fire_mask_photo = ImageTk.PhotoImage(image=fire_mask_image)
+            self.fire_mask_label.config(image=fire_mask_photo)
+            self.fire_mask_label.image = fire_mask_photo
+
+            depth_mask_rgb = cm.plasma(self.normaliser(depth_mask[:, :, 0]))
+            depth_mask_rgb = np.uint8(depth_mask_rgb * 255)
+            depth_map_image = Image.fromarray(depth_mask_rgb)
+            depth_map_photo = ImageTk.PhotoImage(image=depth_map_image)
+
+            self.depth_mask_label.config(image=depth_map_photo)
+            self.depth_mask_label.image = depth_map_photo
+            # depth_mask_image = Image.fromarray(cv2.cvtColor(depth_mask, cv2.COLOR_BGR2RGB))
+            # depth_mask_photo = ImageTk.PhotoImage(image=depth_mask_image)
+            # self.depth_mask_label.config(image=depth_mask_photo)
+            # self.depth_mask_label.image = depth_mask_photo
+
             if cv2.waitKey(1) & 0xFF == ord(self.quit_character):
-                # If the quit character has been pressed, set the capture flag to False to stop the video stream
                 capture = False
-
-        # Release the video stream
         self.video_stream_object.release()
-
-        # Destroy all windows created by OpenCV
         cv2.destroyAllWindows()
 
     def process(self, frame):
         """
-        This function processes a single frame of the video stream. The frame is processed using the U-Net model, which
-        outputs a fire detection mask. The mask is then overlayed on the original frame and returned.
+        Processes a single frame of the video stream using the U-Net model to generate a fire detection mask.
 
-        Parameters:
-        ----------
-        frame: numpy.ndarray
-            A single frame of the video stream.
+        Args:
+            frame (np.ndarray): A single frame of the video stream.
 
         Returns:
-        -------
-        numpy.ndarray
-            The processed frame with the fire detection mask overlayed on the original frame.
+            np.ndarray: The processed frame with the fire detection mask overlayed on the original frame.
         """
-        # Copy the frame to avoid modifying the original frame
-        # complete_frame = frame.copy()
         # Use the U-Net model to generate a fire detection mask
-        pre_processed_frame = (np.copy(frame)[None, :, :, ::-1] / 255.).astype(np.float16)
-        fire_mask = self.fire_segmentation_model(pre_processed_frame)
+        pre_processed_frame = (np.copy(frame)[None, :, :, ::-1]).astype(np.float16)
+
+        # Generate the fire and depth masks using the detector
+        fire_mask, depth_mask = self.detector(pre_processed_frame)
+
+        # Apply a threshold to the fire mask to create a binary mask
         fire_mask = np.where(fire_mask > self.threshold, 255, 0).astype(np.uint8)
         fire_mask = fire_mask[0]
-        depth_mask = self.depth_estimation_model(pre_processed_frame)
-        depth_mask = depth_mask[0]
-        depth_mask = np.array(depth_mask)
+
+        # Extract the depth mask for the first frame
+        depth_mask = (depth_mask[0][0])[:, :, None]
+
+        # Detect fire in the frame using the fire and depth masks
         frame = self.detect_fire(frame=frame, fire_mask=fire_mask, depth_mask=depth_mask)
+        depth_mask = ((depth_mask - np.min(depth_mask)) / (np.max(depth_mask) - np.min(depth_mask)) * 255).astype(
+            'uint8')
         # Return the processed frame
-        return frame[:, :, ::-1]
+        return fire_mask, depth_mask
 
     @staticmethod
     def detect_fire(frame, fire_mask, depth_mask):
+        """
+        Detects fire in a given frame using a fire mask and a depth mask.
+
+        Args:
+            frame (np.ndarray): The frame in which to detect fire.
+            fire_mask (np.ndarray): The mask indicating the presence of fire in the frame.
+            depth_mask (np.ndarray): The mask indicating the depth of each pixel in the frame.
+
+        Returns:
+            np.ndarray: The frame with fire detection information added.
+        """
+        # Darken the areas of the frame where there is no fire
         frame = np.where(fire_mask > 0, frame, frame // 3)
 
-        average_depth = 0
-
+        # Find the contours of the fire mask
         contours__, __ = cv2.findContours(fire_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        text_x, text_y = [0, 0]
-        x, y, width, height = None, None, None, None
+
+        # Create a new mask with the same shape as the frame
         mask = np.zeros_like(frame)
-        for __ in contours__:
-            cv2.drawContours(mask, contours__, -1, 255, thickness=-1)
-            c = max(contours__, key=cv2.contourArea)
-            x, y, width, height = cv2.boundingRect(c)
-            text_x = x + width
-            text_y = y
+
+        # Draw the contours on the new mask
+        [cv2.drawContours(mask, contours__, -1, 255, thickness=-1) for _ in contours__]
+
+        # Find the points where the new mask is white (i.e. where there is fire)
         points = np.where(mask == 255)
+
+        # If there are no points where there is fire, return the original frame
         if len(points) == 0:
             return frame
+
+        # Calculate the average depth of the points where there is fire
         average_depth = np.mean(depth_mask[points])
-        average_depth = de_normalise_depth(average_depth)
+
+        # Add text to the frame indicating the average depth of the fire
         cv2.putText(frame,
-                    text=f'Fire {average_depth:.02f} meters',
-                    org=(text_x, text_y),
+                    text=f'Fire {average_depth:.03f} meters',
+                    org=(0, frame.shape[0]),
                     fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                    fontScale=.3,
+                    fontScale=.4,
                     color=(0, 0, 255),
                     thickness=1)
-        return frame[:, :, ::-1]
+
+        # Return the modified frame
+        return frame
 
 
 if __name__ == '__main__':
-    x = VideoStream(threshold=.6)
-    x.get_feed()
+    video_stream = VideoStream()
+    thread = Thread(target=video_stream.get_feed)
+    thread.start()
+    video_stream.root.mainloop()
