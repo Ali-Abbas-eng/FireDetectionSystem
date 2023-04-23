@@ -8,10 +8,14 @@ from PIL import Image
 from torchvision import transforms
 from tqdm import tqdm
 
-from . import model_io
-from . import utils
-from .models import UnetAdaptiveBins
-
+try:
+    from . import model_io
+    from . import utils
+    from .models import UnetAdaptiveBins
+except ImportError:
+    import model_io
+    import utils
+    from models import UnetAdaptiveBins
 
 def _is_pil_image(img):
     return isinstance(img, Image.Image)
@@ -78,11 +82,11 @@ class InferenceHelper:
             self.max_depth = 80
             self.saving_factor = 256
             model = UnetAdaptiveBins.build(n_bins=256, min_val=self.min_depth, max_val=self.max_depth)
-            pretrained_path = "./pretrained/AdaBins_kitti.pt"
+            pretrained_path = os.path.join('AdaBins', 'pretrained', 'AdaBins_kitti.pt')
         else:
             raise ValueError("dataset can be either 'nyu' or 'kitti' but got {}".format(dataset))
 
-        model, _, _ = model_io.load_checkpoint(pretrained_path, model)
+        model, _, _ = model_io.load_checkpoint(os.path.join('pretrained', 'AdaBins_nyu.pt'), model)
         model.eval()
         self.model = model.to(self.device)
 

@@ -36,7 +36,7 @@ class VideoStream:
             _, frame = self.video_stream_object.read()
             if frame is None:
                 continue
-
+            frame = cv2.resize(frame, (640, 480))
             # New Version:
             fire_mask, depth_mask = self.process(frame=frame)
 
@@ -147,7 +147,7 @@ class VideoStream:
 
 
 if __name__ == '__main__':
-    video_stream = VideoStream()
+    video_stream = VideoStream(ip='10.181.138.155')
     thread = Thread(target=video_stream.get_feed)
     thread.start()
     video_stream.root.mainloop()
