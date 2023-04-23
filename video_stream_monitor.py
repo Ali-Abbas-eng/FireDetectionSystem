@@ -6,6 +6,7 @@ from PIL import Image, ImageTk
 from threading import Thread
 import matplotlib.pyplot as plt
 from matplotlib import cm
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 
 class VideoStream:
@@ -23,13 +24,16 @@ class VideoStream:
         self.frame_label.grid(row=0, column=0)
         self.fire_mask_label = tk.Label(self.root)
         self.fire_mask_label.grid(row=1, column=0)
-        self.depth_mask_label = tk.Label(self.root)
-        self.depth_mask_label.grid(row=1, column=1)
+
         self.text_label = tk.Label(self.root, text="Random text")
         self.text_label.grid(row=0, column=1)
         self.normaliser = plt.Normalize(vmin=self.detector.depth_estimator.min_depth,
                                         vmax=self.detector.depth_estimator.max_depth)
-
+        self.fig, self.ax = plt.subplots(1, 1)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.root)
+        self.canvas.get_tk_widget().grid(row=1, column=1)
+        # self.depth_mask_label = tk.Label(self.root)
+        # self.depth_mask_label.grid(row=1, column=1)
     def get_feed(self):
         capture = True
         while capture:
@@ -51,13 +55,17 @@ class VideoStream:
             self.fire_mask_label.config(image=fire_mask_photo)
             self.fire_mask_label.image = fire_mask_photo
 
-            depth_mask_rgb = cm.plasma(self.normaliser(depth_mask[:, :, 0]))
-            depth_mask_rgb = np.uint8(depth_mask_rgb * 255)
-            depth_map_image = Image.fromarray(depth_mask_rgb)
-            depth_map_photo = ImageTk.PhotoImage(image=depth_map_image)
+            # depth_mask_rgb = cm.plasma(self.normaliser(depth_mask[:, :, 0]))
+            self.ax.clear()
+            plt.axis('off')
+            self.ax.imshow(depth_mask, cmap='plasma')
+            self.canvas.draw()
+            # depth_mask_rgb = np.uint8(depth_mask_rgb * 255)
+            # depth_map_image = Image.fromarray(depth_mask_rgb)
+            # depth_map_photo = ImageTk.PhotoImage(image=depth_map_image)
 
-            self.depth_mask_label.config(image=depth_map_photo)
-            self.depth_mask_label.image = depth_map_photo
+            # self.depth_mask_label.config(image=depth_map_photo)
+            # self.depth_mask_label.image = depth_map_photo
             # depth_mask_image = Image.fromarray(cv2.cvtColor(depth_mask, cv2.COLOR_BGR2RGB))
             # depth_mask_photo = ImageTk.PhotoImage(image=depth_mask_image)
             # self.depth_mask_label.config(image=depth_mask_photo)

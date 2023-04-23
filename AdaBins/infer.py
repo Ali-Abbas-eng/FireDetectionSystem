@@ -86,7 +86,7 @@ class InferenceHelper:
         else:
             raise ValueError("dataset can be either 'nyu' or 'kitti' but got {}".format(dataset))
 
-        model, _, _ = model_io.load_checkpoint(os.path.join('pretrained', 'AdaBins_nyu.pt'), model)
+        model, _, _ = model_io.load_checkpoint(pretrained_path, model)
         model.eval()
         self.model = model.to(self.device)
 

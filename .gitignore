@@ -21,3 +21,4 @@ __pycache__/
 /AdaBins/models/
 /AdaBins/pretrained/
 /fire_detection/models/
+/legacy/
