@@ -5,7 +5,7 @@ import tkinter as tk
 from PIL import Image, ImageTk
 from threading import Thread
 import matplotlib.pyplot as plt
-from matplotlib import cm
+from time import sleep
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 
@@ -34,6 +34,7 @@ class VideoStream:
         self.canvas.get_tk_widget().grid(row=1, column=1)
         # self.depth_mask_label = tk.Label(self.root)
         # self.depth_mask_label.grid(row=1, column=1)
+
     def get_feed(self):
         capture = True
         while capture:
@@ -56,20 +57,11 @@ class VideoStream:
             self.fire_mask_label.image = fire_mask_photo
 
             # depth_mask_rgb = cm.plasma(self.normaliser(depth_mask[:, :, 0]))
-            self.ax.clear()
             plt.axis('off')
             self.ax.imshow(depth_mask, cmap='plasma')
             self.canvas.draw()
-            # depth_mask_rgb = np.uint8(depth_mask_rgb * 255)
-            # depth_map_image = Image.fromarray(depth_mask_rgb)
-            # depth_map_photo = ImageTk.PhotoImage(image=depth_map_image)
-
-            # self.depth_mask_label.config(image=depth_map_photo)
-            # self.depth_mask_label.image = depth_map_photo
-            # depth_mask_image = Image.fromarray(cv2.cvtColor(depth_mask, cv2.COLOR_BGR2RGB))
-            # depth_mask_photo = ImageTk.PhotoImage(image=depth_mask_image)
-            # self.depth_mask_label.config(image=depth_mask_photo)
-            # self.depth_mask_label.image = depth_mask_photo
+            self.canvas.flush_events()
+            self.fig.canvas.flush_events()
 
             if cv2.waitKey(1) & 0xFF == ord(self.quit_character):
                 capture = False
@@ -96,15 +88,8 @@ class VideoStream:
         fire_mask = np.where(fire_mask > self.threshold, 255, 0).astype(np.uint8)
         fire_mask = fire_mask[0]
 
-        # Extract the depth mask for the first frame
-        depth_mask = (depth_mask[0][0])[:, :, None]
-
-        # Detect fire in the frame using the fire and depth masks
-        frame = self.detect_fire(frame=frame, fire_mask=fire_mask, depth_mask=depth_mask)
-        depth_mask = ((depth_mask - np.min(depth_mask)) / (np.max(depth_mask) - np.min(depth_mask)) * 255).astype(
-            'uint8')
         # Return the processed frame
-        return fire_mask, depth_mask
+        return fire_mask, depth_mask[0][0]
 
     @staticmethod
     def detect_fire(frame, fire_mask, depth_mask):
@@ -130,9 +115,13 @@ class VideoStream:
 
         # Draw the contours on the new mask
         [cv2.drawContours(mask, contours__, -1, 255, thickness=-1) for _ in contours__]
+        max_contour = []
+        for contour in contours__:
+            if len(contour) > len(max_contour):
+                max_contour = contour
 
         # Find the points where the new mask is white (i.e. where there is fire)
-        points = np.where(mask == 255)
+        points = max_contour
 
         # If there are no points where there is fire, return the original frame
         if len(points) == 0:
@@ -141,21 +130,13 @@ class VideoStream:
         # Calculate the average depth of the points where there is fire
         average_depth = np.mean(depth_mask[points])
 
-        # Add text to the frame indicating the average depth of the fire
-        cv2.putText(frame,
-                    text=f'Fire {average_depth:.03f} meters',
-                    org=(0, frame.shape[0]),
-                    fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                    fontScale=.4,
-                    color=(0, 0, 255),
-                    thickness=1)
-
         # Return the modified frame
-        return frame
+        return average_depth
 
 
 if __name__ == '__main__':
-    video_stream = VideoStream(ip='10.181.138.155')
-    thread = Thread(target=video_stream.get_feed)
+    video_stream = VideoStream()
+    # video_stream = VideoStream(ip='192.168.126.231')
+    thread = Thread(target=video_stream.get_feed, daemon=True)
     thread.start()
     video_stream.root.mainloop()

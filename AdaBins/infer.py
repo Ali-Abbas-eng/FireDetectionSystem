@@ -86,16 +86,19 @@ class InferenceHelper:
         else:
             raise ValueError("dataset can be either 'nyu' or 'kitti' but got {}".format(dataset))
 
-        model, _, _ = model_io.load_checkpoint(pretrained_path, model)
+        try:
+            model, _, _ = model_io.load_checkpoint(pretrained_path, model)
+        except FileNotFoundError:
+            model, _, _ = model_io.load_checkpoint(os.path.join('pretrained', 'AdaBins_nyu.pt'), model)
         model.eval()
         self.model = model.to(self.device)
 
     @torch.no_grad()
     def predict_pil(self, pil_image, visualized=False):
         # pil_image = pil_image.resize((640, 480))
-        img = np.asarray(pil_image) / 255.
+        # img = np.asarray(pil_image) / 255.
 
-        img = self.toTensor(img).unsqueeze(0).float().to(self.device)
+        img = self.toTensor(pil_image).unsqueeze(0).float().to(self.device)
         bin_centers, pred = self.predict(img)
 
         if visualized:
