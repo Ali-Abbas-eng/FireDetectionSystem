@@ -5,7 +5,6 @@ import tkinter as tk
 from PIL import Image, ImageTk
 from threading import Thread
 import matplotlib.pyplot as plt
-from time import sleep
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 
@@ -25,7 +24,7 @@ class VideoStream:
         self.fire_mask_label = tk.Label(self.root)
         self.fire_mask_label.grid(row=1, column=0)
 
-        self.text_label = tk.Label(self.root, text="Random text")
+        self.text_label = tk.Label(self.root, text="Initialising Display ....")
         self.text_label.grid(row=0, column=1)
         self.normaliser = plt.Normalize(vmin=self.detector.depth_estimator.min_depth,
                                         vmax=self.detector.depth_estimator.max_depth)
@@ -43,7 +42,7 @@ class VideoStream:
                 continue
             frame = cv2.resize(frame, (640, 480))
             # New Version:
-            fire_mask, depth_mask = self.process(frame=frame)
+            fire_mask, depth_mask, coords = self.process(frame=frame)
 
             # Send to Tkinter viewing functionality
             frame_image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
@@ -63,6 +62,8 @@ class VideoStream:
             self.canvas.flush_events()
             self.fig.canvas.flush_events()
 
+            self.text_label.configure(text=f'Fire at:\n\tx = {coords[0]}\n\ty = {coords[1]}\n\tz = {coords[2]}')
+            self.text_label.update()
             if cv2.waitKey(1) & 0xFF == ord(self.quit_character):
                 capture = False
         self.video_stream_object.release()
@@ -88,8 +89,25 @@ class VideoStream:
         fire_mask = np.where(fire_mask > self.threshold, 255, 0).astype(np.uint8)
         fire_mask = fire_mask[0]
 
+        # Find the contours of the fire mask
+        contours__, __ = cv2.findContours(fire_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        max_contour = []
+        for contour in contours__:
+            if len(contour) > len(max_contour):
+                max_contour = contour
+
+        # If there are no points where there is fire, return the original frame
+        if len(max_contour) == 0:
+            # Return the processed frame
+            return fire_mask, depth_mask[0][0], (None, None, None)
+
+        coordinates = max_contour[len(max_contour) // 2][0]
+
+        # Calculate the average depth of the points where there is fire
+        average_depth = np.min(depth_mask.flatten())
         # Return the processed frame
-        return fire_mask, depth_mask[0][0]
+        return fire_mask, depth_mask[0][0], (*coordinates, average_depth)
 
     @staticmethod
     def detect_fire(frame, fire_mask, depth_mask):
@@ -110,11 +128,6 @@ class VideoStream:
         # Find the contours of the fire mask
         contours__, __ = cv2.findContours(fire_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        # Create a new mask with the same shape as the frame
-        mask = np.zeros_like(frame)
-
-        # Draw the contours on the new mask
-        [cv2.drawContours(mask, contours__, -1, 255, thickness=-1) for _ in contours__]
         max_contour = []
         for contour in contours__:
             if len(contour) > len(max_contour):
