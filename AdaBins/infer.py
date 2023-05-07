@@ -98,7 +98,7 @@ class InferenceHelper:
         # pil_image = pil_image.resize((640, 480))
         # img = np.asarray(pil_image) / 255.
 
-        img = self.toTensor(pil_image).unsqueeze(0).float().to(self.device)
+        img = self.toTensor(pil_image).unsqueeze(0).float().to(self.device) / 255.
         bin_centers, pred = self.predict(img)
 
         if visualized:
