@@ -42,7 +42,7 @@ class VideoStream:
                 continue
             frame = cv2.resize(frame, (640, 480))
             # New Version:
-            fire_mask, depth_mask, coords = self.detector(image=frame)
+            fire_mask, depth_mask, coords = self.detector(image=frame[:, :, ::-1])
 
             # Send to Tkinter viewing functionality
             frame_image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
