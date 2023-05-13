@@ -80,7 +80,7 @@ class VideoStream:
             np.ndarray: The processed frame with the fire detection mask overlayed on the original frame.
         """
         # Use the U-Net model to generate a fire detection mask
-        pre_processed_frame = (np.copy(frame)[None, :, :, ::-1]).astype(np.float16)
+        pre_processed_frame = (np.copy(frame)[:, :, ::-1]) / 255.
 
         # Generate the fire and depth masks using the detector
         fire_mask, depth_mask = self.detector(pre_processed_frame)

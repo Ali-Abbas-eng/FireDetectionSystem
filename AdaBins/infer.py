@@ -94,11 +94,8 @@ class InferenceHelper:
         self.model = model.to(self.device)
 
     @torch.no_grad()
-    def predict_pil(self, pil_image, visualized=False):
-        # pil_image = pil_image.resize((640, 480))
-        # img = np.asarray(pil_image) / 255.
-
-        img = self.toTensor(pil_image).unsqueeze(0).float().to(self.device) / 255.
+    def predict_pil(self, image, visualized=False):
+        img = torch.Tensor(image).to(self.device)
         bin_centers, pred = self.predict(img)
 
         if visualized:
