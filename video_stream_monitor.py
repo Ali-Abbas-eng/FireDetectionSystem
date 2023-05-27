@@ -9,10 +9,11 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 
 class VideoStream:
-    def __init__(self, quit_character: str = 'q',
+    def __init__(self,
+                 quit_character: str = 'q',
                  threshold: float = .4,
-                 ip: str = None):
-        self.video_stream_object = cv2.VideoCapture(f'https://{ip}:8080/video' if ip is not None else 0)
+                 stream_address: str = None):
+        self.video_stream_object = cv2.VideoCapture(stream_address)
         self.quit_character = quit_character
         self.detector = Detector()
         self.threshold = threshold
@@ -71,8 +72,7 @@ class VideoStream:
 
 
 if __name__ == '__main__':
-    video_stream = VideoStream()
-    # video_stream = VideoStream(ip='192.168.126.231')
+    video_stream = VideoStream(stream_address='tests/videos/video 02.mp4')
     thread = Thread(target=video_stream.get_feed, daemon=True)
     thread.start()
     video_stream.root.mainloop()
