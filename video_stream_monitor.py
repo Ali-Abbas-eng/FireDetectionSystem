@@ -6,13 +6,15 @@ from PIL import Image, ImageTk
 from threading import Thread
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import argparse
 
 
 class VideoStream:
-    def __init__(self, quit_character: str = 'q',
+    def __init__(self,
+                 quit_character: str = 'q',
                  threshold: float = .4,
-                 ip: str = None):
-        self.video_stream_object = cv2.VideoCapture(f'https://{ip}:8080/video' if ip is not None else 0)
+                 location: str = None):
+        self.video_stream_object = cv2.VideoCapture(location if location is not None else 0)
         self.quit_character = quit_character
         self.detector = Detector()
         self.threshold = threshold
@@ -71,8 +73,11 @@ class VideoStream:
 
 
 if __name__ == '__main__':
-    video_stream = VideoStream()
-    # video_stream = VideoStream(ip='192.168.126.231')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--quit_character', default='q', required=False)
+    parser.add_argument('--threshold', default=0.4, required=False)
+    parser.add_argument('--location', default=None, required=False)
+    video_stream = VideoStream(**vars(parser.parse_args()))
     thread = Thread(target=video_stream.get_feed, daemon=True)
     thread.start()
     video_stream.root.mainloop()
