@@ -3,7 +3,7 @@
 ## Usage: 
 Run the following command to start monitoring a video feed:
 
-```bash python ./video_stream_monitor.py --quit_character "QUIT CHARACTER" --threshold "THRESHOLD" --location "WHERE/TO/GET/VIDEO/FEED"```
+```python ./video_stream_monitor.py --quit_character "QUIT CHARACTER" --threshold "THRESHOLD" --location "WHERE/TO/GET/VIDEO/FEED"```
 
 ### Parameters
 * **--quit_character**: a single character which when pressed the app closes (default 'q').
@@ -24,6 +24,4 @@ camera sensor ip address, or None which makes the app try to connect to a camera
 
 Here is an example of the application in action:
 
-![](assets/system.png)```bash python .\video_stream_monitor.py --location "experiments/test_files/video 02.mp4"``` 
-
-...
+![](assets/system.png)```python .\video_stream_monitor.py --location "experiments/test_files/video 02.mp4"``` 
