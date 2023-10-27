@@ -1,4 +1,4 @@
-# Fire Detection System
+# Fire Detection System With Depth Estimation
 
 ## Usage: 
 Run the following command to start monitoring a video feed:
