@@ -18,3 +18,12 @@ camera sensor ip address, or None which makes the app try to connect to a camera
 - TensorFlow 3.10
 - PyTorch 1.13
 - OpenCV 4.7.0.72
+
+
+## Results
+
+Here is an example of the application in action:
+
+![](assets/system.png)```bash python .\video_stream_monitor.py --location "experiments/test_files/video 02.mp4"``` 
+
+...
